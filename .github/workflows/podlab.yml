@@ -1,0 +1,83 @@
+# GitHub Actions workflow for podlab. In your repo this file must live at  .github/workflows/podlab.yml
+# (see SETUP-GITHUB.txt). It runs every candidate from experiments.txt on its own machine, in parallel.
+name: podlab
+
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "Minutes of games per candidate (max 180)"
+        default: "45"
+      sims:
+        description: "Simulations per turn for every bot"
+        default: "4000"
+      only:
+        description: "Only these candidates, comma separated (empty = all from experiments.txt)"
+        default: ""
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      names: ${{ steps.names.outputs.names }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: List candidates
+        id: names
+        env:
+          ONLY: ${{ inputs.only }}
+        run: |
+          all=$(grep -vE '^[[:space:]]*(#|$)' experiments.txt | cut -d: -f1 | tr -d ' \t')
+          sel=""
+          for n in $all; do
+            if [ -z "$ONLY" ] || echo ",$ONLY," | tr -d ' ' | grep -q ",$n,"; then
+              sel="$sel $n"
+            fi
+          done
+          if [ -z "$sel" ]; then echo "No matching candidates"; exit 1; fi
+          json=$(printf '%s\n' $sel | jq -R . | jq -sc .)
+          echo "Candidates: $json"
+          echo "names=$json" >> "$GITHUB_OUTPUT"
+
+  arena:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        name: ${{ fromJSON(needs.prepare.outputs.names) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Play games
+        run: cargo run --release -- --only "${{ matrix.name }}" --minutes "${{ inputs.minutes }}" --sims "${{ inputs.sims }}" --out "results-${{ matrix.name }}.txt"
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: results-${{ matrix.name }}
+          path: results-${{ matrix.name }}.txt
+          if-no-files-found: warn
+
+  report:
+    needs: arena
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: results-*
+          path: all
+          merge-multiple: true
+      - name: Combine all results
+        run: |
+          first=$(ls all/results-*.txt | head -1)
+          {
+            echo '## podlab results'
+            echo '```'
+            head -1 "$first"
+            echo "score = share of points the candidate won against the baseline (win 1, draw 0.5); 50% = equal"
+            echo
+            grep -h "W-D-L" all/results-*.txt
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
