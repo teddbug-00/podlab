@@ -1,0 +1,18 @@
+# One candidate per line:   name: SETTING=VALUE SETTING=VALUE ...
+# Every candidate plays the baseline (bots/a.rs with its default settings) from both sides, on identical maps.
+#
+# Special settings:
+#   sims=N     simulations per turn for this candidate only
+#   simsx=F    multiply the global --sims by F for this candidate (used below to give deeper searches
+#              proportionally fewer simulations, so everybody gets the same "thinking time")
+#   bot=b      run bots/b.rs (your candidate slot) instead of bots/a.rs
+# Anything else is one of the bot's CSB_* settings (see the header of bots/a.rs).
+#
+# --- the first batch ---------------------------------------------------------------------------
+depth7:      CSB_DEPTH=7 simsx=0.86
+depth8:      CSB_DEPTH=8 simsx=0.75
+no_opp:      CSB_OPLEN=0
+no_dyn:      CSB_LSEC=0 CSB_LBLK=0 CSB_BBLK=0
+boost_off:   CSB_BOOSTGATE=0
+wblock_hi:   CSB_WBLOCK=0.40
+wblock_lo:   CSB_WBLOCK=0.18

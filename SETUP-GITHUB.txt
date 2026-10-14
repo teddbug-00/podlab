@@ -1,0 +1,23 @@
+RUNNING PODLAB ON GITHUB ACTIONS (free, parallel, nothing runs on your computer)
+================================================================================
+Public repositories get free standard runners (about 4 CPUs each). This workflow gives EVERY candidate in
+experiments.txt its own machine, all at the same time.
+
+1. Make a free account at https://github.com if you do not have one.
+2. Click "+" -> "New repository". Name it  podlab , choose PUBLIC, click "Create repository".
+   (Public means anybody can see the code in it - it is only your bot, no passwords.)
+3. On the empty repository page click "uploading an existing file".
+   Unzip podlab.zip into a FRESH folder (not the one that has a "target" folder from running it locally),
+   open the podlab folder, select everything INSIDE it and drag it into the browser. You should see
+   src/main.rs and bots/a.rs listed. Click "Commit changes".
+4. Add the workflow: "Add file" -> "Create new file". In the name box type exactly
+       .github/workflows/podlab.yml
+   (typing the slashes creates the folders). Open podlab-workflow.yml from the zip, copy ALL of it, paste it
+   into the big box, click "Commit changes".
+5. Open the "Actions" tab. If GitHub asks you to enable workflows, say yes. Click "podlab" on the left ->
+   "Run workflow" -> leave the defaults (45 minutes) -> green "Run workflow" button.
+6. After about 50 minutes the run turns green. Click the run, scroll down: the combined table is on the summary
+   page (also in the "report" job's log). Copy it and send it to me.
+
+If a step turns red, click it and send me the last lines of its log.
+Fair use: this is for testing your bot. Do not leave it running around the clock.
