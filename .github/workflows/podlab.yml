@@ -14,6 +14,9 @@ on:
       only:
         description: "Only these candidates, comma separated (empty = all from experiments.txt)"
         default: ""
+      seed:
+        description: "Map seed. Use a NEW number to play on fresh maps (the same seed replays the same games)"
+        default: "4242"
 
 jobs:
   prepare:
@@ -50,7 +53,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Play games
-        run: cargo run --release -- --only "${{ matrix.name }}" --minutes "${{ inputs.minutes }}" --sims "${{ inputs.sims }}" --out "results-${{ matrix.name }}.txt"
+        run: cargo run --release -- --only "${{ matrix.name }}" --minutes "${{ inputs.minutes }}" --sims "${{ inputs.sims }}" --seed "${{ inputs.seed }}" --out "results-${{ matrix.name }}.txt"
       - name: Upload result
         if: always()
         uses: actions/upload-artifact@v4
