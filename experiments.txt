@@ -3,16 +3,25 @@
 #
 # Special settings:
 #   sims=N     simulations per turn for this candidate only
-#   simsx=F    multiply the global --sims by F for this candidate (used below to give deeper searches
-#              proportionally fewer simulations, so everybody gets the same "thinking time")
-#   bot=b      run bots/b.rs (your candidate slot) instead of bots/a.rs
+#   simsx=F    multiply the global --sims by F for this candidate (shallower/deeper searches get proportionally
+#              more/fewer simulations, so everybody gets the same "thinking time")
+#   bot=b      run bots/b.rs (the second bot slot) instead of bots/a.rs
 # Anything else is one of the bot's CSB_* settings (see the header of bots/a.rs).
 #
-# --- the first batch ---------------------------------------------------------------------------
-depth7:      CSB_DEPTH=7 simsx=0.86
-depth8:      CSB_DEPTH=8 simsx=0.75
-no_opp:      CSB_OPLEN=0
-no_dyn:      CSB_LSEC=0 CSB_LBLK=0 CSB_BBLK=0
-boost_off:   CSB_BOOSTGATE=0
+# --- batch 2: baseline = v7 (v4_safe with the dynamic role weights off) -------------------------------
+# replication: the old bot (bots/b.rs = v4_safe) vs v7; batch 1 predicts it scores about 40%
+old_v4:      bot=b
+# search depth: batch 1 showed deeper = worse (depth7 40%, depth8 30%), so try shallower
+depth5:      CSB_DEPTH=5 simsx=1.2
+depth4:      CSB_DEPTH=4 simsx=1.5
+# blocker weight (dynamic weights are off now, so the weight is fixed)
 wblock_hi:   CSB_WBLOCK=0.40
-wblock_lo:   CSB_WBLOCK=0.18
+wblock_vhi:  CSB_WBLOCK=0.55
+# the opponent plan was the biggest single win in batch 1 (turning it off scored 22%): tune it
+oplen2:      CSB_OPLEN=2
+oplen5:      CSB_OPLEN=5
+opshare10:   CSB_OPSHARE=0.10
+opshare35:   CSB_OPSHARE=0.35
+opdist_all:  CSB_OPDIST=99999
+# keep only the "when behind, block harder" half of the dynamic weights
+behind_on:   CSB_BBLK=1.0
