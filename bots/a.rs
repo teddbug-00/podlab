@@ -1,4 +1,9 @@
-// Single-population GA for Mad Pod Racing  (v4 + timing stats + safer time budget)
+// Single-population GA for Mad Pod Racing  (v7 = v4_safe with the dynamic role weights switched OFF by default)
+//
+// v7: in self-play (podlab, 2399 games, 4000 sims/turn) turning the dynamic weights off beat v4_safe 60.6%
+// (95% CI 58.6-62.5, ~+75 Elo). The blocker now always uses the fixed CSB_WBLOCK / CSB_WSECOND weights.
+//
+// (v4 + timing stats + safer time budget)
 //
 // TIME BUDGET: per-turn think time lowered from 73 ms to 50 ms (CSB_TIME). Replays showed turns of 88-90 ms
 // (limit 75 ms) -> timeout losses, while the bot gets ~50k simulations per turn, far more than it needs.
@@ -37,9 +42,9 @@
 //   existing: CSB_DEPTH CSB_POP CSB_WVEL CSB_WBLOCK CSB_WSECOND CSB_SIMS CSB_TIME
 //             CSB_WFACE CSB_WVELFAR CSB_VELRAMP CSB_CHASE CSB_CHASEA CSB_DEBUG
 //   new:      CSB_LEAD     distance lead (opp_rem - my_rem) that counts as "fully winning/losing"  (4000)
-//             CSB_LSEC     when winning: w_second *= 1 + LSEC * k                                    (3.0)
-//             CSB_LBLK     when winning: w_block  *= 1 - LBLK * k                                    (0.6)
-//             CSB_BBLK     when losing:  w_block  *= 1 + BBLK * k                                    (1.0)
+//             CSB_LSEC     when winning: w_second *= 1 + LSEC * k                                    (0 = off)
+//             CSB_LBLK     when winning: w_block  *= 1 - LBLK * k                                    (0 = off)
+//             CSB_BBLK     when losing:  w_block  *= 1 + BBLK * k                                    (0 = off)
 //             CSB_OPLEN    opponent plan length in plies, 0 = feature off                            (3)
 //             CSB_OPSHARE  fraction of the turn's time spent on the opponent hill-climb              (0.22)
 //             CSB_OPDIST   skip the hill-climb if every (my pod, opp pod) pair is farther than this  (4000)
@@ -52,7 +57,7 @@
 //
 // Switch features off for A/B tests:
 //   boost gating off:     CSB_BOOSTGATE=0
-//   dynamic weights off:  CSB_LSEC=0 CSB_LBLK=0 CSB_BBLK=0
+//   dynamic weights ON:   CSB_LSEC=3 CSB_LBLK=0.6 CSB_BBLK=1   (they were the v3/v4 defaults)
 //   opponent plan off:    CSB_OPLEN=0
 use std::cmp::Ordering;
 use std::f64::consts::PI;
@@ -376,9 +381,9 @@ impl Bot {
             chase_thresh: env_f("CSB_CHASE", 0.15),
             chase_alpha: env_f("CSB_CHASEA", 0.2),
             lead_scale: env_f("CSB_LEAD", 4000.0).max(1.0),
-            lead_sec: env_f("CSB_LSEC", 3.0),
-            lead_blk: env_f("CSB_LBLK", 0.6),
-            behind_blk: env_f("CSB_BBLK", 1.0),
+            lead_sec: env_f("CSB_LSEC", 0.0),
+            lead_blk: env_f("CSB_LBLK", 0.0),
+            behind_blk: env_f("CSB_BBLK", 0.0),
             // plan must stay shorter than the GA depth: the last ply of a shifted individual is random
             op_len: (env_f("CSB_OPLEN", 3.0) as usize)
                 .min(MAX_OPP_LEN)
