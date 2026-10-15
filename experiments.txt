@@ -1,27 +1,21 @@
 # One candidate per line:   name: SETTING=VALUE SETTING=VALUE ...
-# Every candidate plays the baseline (bots/a.rs with its default settings) from both sides, on identical maps.
+# Every candidate plays the baseline (bots/a.rs = v7 with its default settings) from both sides, on identical maps.
 #
 # Special settings:
 #   sims=N     simulations per turn for this candidate only
-#   simsx=F    multiply the global --sims by F for this candidate (shallower/deeper searches get proportionally
-#              more/fewer simulations, so everybody gets the same "thinking time")
+#   simsx=F    multiply the global --sims by F for this candidate (shallower search = proportionally more sims)
 #   bot=b      run bots/b.rs (the second bot slot) instead of bots/a.rs
 # Anything else is one of the bot's CSB_* settings (see the header of bots/a.rs).
 #
-# --- batch 2: baseline = v7 (v4_safe with the dynamic role weights off) -------------------------------
-# replication: the old bot (bots/b.rs = v4_safe) vs v7; batch 1 predicts it scores about 40%
-old_v4:      bot=b
-# search depth: batch 1 showed deeper = worse (depth7 40%, depth8 30%), so try shallower
-depth5:      CSB_DEPTH=5 simsx=1.2
-depth4:      CSB_DEPTH=4 simsx=1.5
-# blocker weight (dynamic weights are off now, so the weight is fixed)
-wblock_hi:   CSB_WBLOCK=0.40
-wblock_vhi:  CSB_WBLOCK=0.55
-# the opponent plan was the biggest single win in batch 1 (turning it off scored 22%): tune it
-oplen2:      CSB_OPLEN=2
+# --- batch 3: confirm the batch-2 winners on FRESH maps (workflow seed != 12345), then try combinations ---
+# control: practically the same strength as the baseline (population 91 instead of 90). Should score ~50%;
+# how far it strays shows the noise level of this test.
+ctrl:        CSB_POP=91
+# the three batch-2 winners, one at a time (independent confirmation)
 oplen5:      CSB_OPLEN=5
-opshare10:   CSB_OPSHARE=0.10
-opshare35:   CSB_OPSHARE=0.35
-opdist_all:  CSB_OPDIST=99999
-# keep only the "when behind, block harder" half of the dynamic weights
-behind_on:   CSB_BBLK=1.0
+wblock_hi:   CSB_WBLOCK=0.40
+depth5:      CSB_DEPTH=5 simsx=1.2
+# combinations
+combo_a:     CSB_OPLEN=5 CSB_WBLOCK=0.40
+combo_b:     CSB_OPLEN=5 CSB_WBLOCK=0.40 CSB_OPSHARE=0.10
+combo_c:     CSB_OPLEN=5 CSB_WBLOCK=0.40 CSB_DEPTH=5 simsx=1.2
