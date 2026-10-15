@@ -1,4 +1,22 @@
-// Single-population GA for Mad Pod Racing  (v7 = v4_safe with the dynamic role weights switched OFF by default)
+// Single-population GA for Mad Pod Racing  (v9 = v8 with two new defaults: OPLEN=5, WBLOCK=0.40)
+//
+// v9: arena confirmation on fresh maps (batch 3, ~2300 games each, vs v7): CSB_OPLEN=5 + CSB_WBLOCK=0.40 scored
+// 56.1% (95% CI 54.1-58.1, ~+43 Elo). OPLEN=5 alone: 54.4%. The opponent plan may now cover the whole horizon
+// (CSB_OPLEN up to the search depth; before it stopped one ply short). Everything else is v8.
+//
+// (v8 = v7 + hit / near-miss terms, all OFF by default)
+//
+// v8: three new leaf-score terms, each OFF by default, so with no settings changed v8 plays exactly like v7.
+//   CSB_HITPEN    penalty per unit of collision impulse my RACER receives from opponents inside the simulated line
+//   CSB_HITBONUS  bonus per unit of impulse delivered to the opponent LEADER (by any of my pods)
+//   CSB_HITCAP    impulses are capped at this value before weighting                                  (1000)
+//   CSB_NEARPEN   penalty per unit that my racer gets closer than CSB_NEARR to the opponent's weaker pod
+//                 (the likely blocker) at any point of the simulated line: a safety margin against a
+//                 blocker that does not follow the predicted path
+//   CSB_NEARR     radius of that margin                                                                (1800)
+// A typical hard collision is an impulse of 300-1200; 0.25-1.0 per unit is the range worth testing.
+//
+// (v7 = v4_safe with the dynamic role weights switched OFF by default)
 //
 // v7: in self-play (podlab, 2399 games, 4000 sims/turn) turning the dynamic weights off beat v4_safe 60.6%
 // (95% CI 58.6-62.5, ~+75 Elo). The blocker now always uses the fixed CSB_WBLOCK / CSB_WSECOND weights.
@@ -45,7 +63,7 @@
 //             CSB_LSEC     when winning: w_second *= 1 + LSEC * k                                    (0 = off)
 //             CSB_LBLK     when winning: w_block  *= 1 - LBLK * k                                    (0 = off)
 //             CSB_BBLK     when losing:  w_block  *= 1 + BBLK * k                                    (0 = off)
-//             CSB_OPLEN    opponent plan length in plies, 0 = feature off                            (3)
+//             CSB_OPLEN    opponent plan length in plies, 0 = feature off                            (5)
 //             CSB_OPSHARE  fraction of the turn's time spent on the opponent hill-climb              (0.22)
 //             CSB_OPDIST   skip the hill-climb if every (my pod, opp pod) pair is farther than this  (4000)
 //
@@ -141,6 +159,8 @@ struct Pod {
     passed: i32,
     shield: i32,
     boosted: bool,
+    hit: f64,  // impulse received from pods of the other team (see CSB_HITPEN / CSB_HITBONUS)
+    mind: f64, // closest distance to the opponent's weaker pod over the simulated line (my racer only)
 }
 
 struct TrigLut {
@@ -229,7 +249,7 @@ fn new_collide(a: &Pod, b: &Pod) -> f64 {
 }
 
 #[inline(always)]
-fn bounce(a: &mut Pod, b: &mut Pod) {
+fn bounce(a: &mut Pod, b: &mut Pod) -> f64 {
     let d = b.pos - a.pos;
     let mut dd = d.mag();
     let n = if dd > 1e-9 {
@@ -255,6 +275,7 @@ fn bounce(a: &mut Pod, b: &mut Pod) {
         a.pos = a.pos - n * push;
         b.pos = b.pos + n * push;
     }
+    force
 }
 
 #[inline(always)]
@@ -316,6 +337,12 @@ struct Params {
     boost_far: f64,
     boost_last: f64,
     boost_cos: f64,
+    // hit / near-miss terms
+    hit_pen: f64,
+    hit_bonus: f64,
+    hit_cap: f64,
+    near_pen: f64,
+    near_r: f64,
     max_sims: u32,
     time_ms: u128,
     debug: u32,
@@ -363,6 +390,8 @@ struct Bot {
     dbg_min_sims: u32,
     dbg_max_ms: u128,
     dbg_slow: u32,
+    // the weaker opponent pod by potential (the likely blocker), refreshed every turn by update_chase()
+    opp_weak: usize,
 }
 
 impl Bot {
@@ -376,7 +405,7 @@ impl Bot {
             w_vel_far: env_f("CSB_WVELFAR", 1.8),
             vel_ramp: env_f("CSB_VELRAMP", 3000.0).max(1.0),
             w_face: env_f("CSB_WFACE", 100.0),
-            w_block: env_f("CSB_WBLOCK", 0.28),
+            w_block: env_f("CSB_WBLOCK", 0.40),
             w_second: env_f("CSB_WSECOND", 0.12),
             chase_thresh: env_f("CSB_CHASE", 0.15),
             chase_alpha: env_f("CSB_CHASEA", 0.2),
@@ -384,10 +413,10 @@ impl Bot {
             lead_sec: env_f("CSB_LSEC", 0.0),
             lead_blk: env_f("CSB_LBLK", 0.0),
             behind_blk: env_f("CSB_BBLK", 0.0),
-            // plan must stay shorter than the GA depth: the last ply of a shifted individual is random
-            op_len: (env_f("CSB_OPLEN", 3.0) as usize)
+            // the plan can cover at most the whole search depth (and MAX_OPP_LEN plies)
+            op_len: (env_f("CSB_OPLEN", 5.0) as usize)
                 .min(MAX_OPP_LEN)
-                .min(depth - 1),
+                .min(depth),
             op_share: env_f("CSB_OPSHARE", 0.22).clamp(0.0, 0.8),
             op_dist: env_f("CSB_OPDIST", 4000.0),
             boost_gate: env_f("CSB_BOOSTGATE", 1.0) > 0.0,
@@ -395,6 +424,11 @@ impl Bot {
             boost_far: env_f("CSB_BOOSTFAR", 4000.0),
             boost_last: env_f("CSB_BOOSTLAST", 3000.0),
             boost_cos: env_f("CSB_BOOSTCOS", 0.9),
+            hit_pen: env_f("CSB_HITPEN", 0.0),
+            hit_bonus: env_f("CSB_HITBONUS", 0.0),
+            hit_cap: env_f("CSB_HITCAP", 1000.0),
+            near_pen: env_f("CSB_NEARPEN", 0.0),
+            near_r: env_f("CSB_NEARR", 1800.0),
             max_sims: env_f("CSB_SIMS", 0.0) as u32,
             time_ms: env_f("CSB_TIME", 50.0) as u128,
             debug: env_f("CSB_DEBUG", 1.0) as u32,
@@ -432,6 +466,7 @@ impl Bot {
             dbg_min_sims: u32::MAX,
             dbg_max_ms: 0,
             dbg_slow: 0,
+            opp_weak: 3,
         }
     }
 
@@ -569,7 +604,14 @@ impl Bot {
 
             if ci != cj {
                 let (l, r) = w.pods.split_at_mut(ci);
-                bounce(&mut r[0], &mut l[cj]);
+                let f = bounce(&mut r[0], &mut l[cj]);
+                if ci >= 2 && cj < 2 {
+                    // my pod (cj) hit an opponent pod (ci): remember the velocity change each of them received
+                    let ma = if r[0].shield == SHIELD_TIMER { 0.1 } else { 1.0 };
+                    let mb = if l[cj].shield == SHIELD_TIMER { 0.1 } else { 1.0 };
+                    r[0].hit += f * ma;
+                    l[cj].hit += f * mb;
+                }
             }
 
             if t > 0.0 {
@@ -671,6 +713,9 @@ impl Bot {
         let depth = self.params.depth;
         let op_len = self.params.op_len;
         let mut w = *start;
+        let track = self.params.near_pen > 0.0;
+        let (racer_i, weak_i) = (self.racer_idx, self.opp_weak);
+        let mut mind = f64::MAX;
 
         for i in 0..depth {
             let om = if i < op_len {
@@ -680,6 +725,12 @@ impl Bot {
             };
             let (m0, m1) = self.my_moves(&w, sol, i);
             self.step(&mut w, m0, m1, om);
+            if track {
+                let d = w.pods[racer_i].pos.dist(w.pods[weak_i].pos);
+                if d < mind {
+                    mind = d;
+                }
+            }
 
             if w.pods[0].passed >= self.total || w.pods[1].passed >= self.total {
                 return Err(1.0e7 + (depth - i) as f64 * 1.0e4);
@@ -687,6 +738,9 @@ impl Bot {
             if w.pods[2].passed >= self.total || w.pods[3].passed >= self.total {
                 return Err(-1.0e7 - (depth - i) as f64 * 1.0e4);
             }
+        }
+        if track {
+            w.pods[racer_i].mind = mind;
         }
         Ok(w)
     }
@@ -713,7 +767,17 @@ impl Bot {
             dist * self.cur_wblock
         };
 
-        (pr - po) + self.cur_wsecond * pb - block_score
+        let mut score = (pr - po) + self.cur_wsecond * pb - block_score;
+        if self.params.hit_bonus > 0.0 {
+            score += self.params.hit_bonus * w.pods[leader].hit.min(self.params.hit_cap);
+        }
+        if self.params.hit_pen > 0.0 {
+            score -= self.params.hit_pen * w.pods[racer].hit.min(self.params.hit_cap);
+        }
+        if self.params.near_pen > 0.0 {
+            score -= self.params.near_pen * (self.params.near_r - w.pods[racer].mind).max(0.0);
+        }
+        score
     }
 
     /// Opponent's leaf score (higher = better for THEM). Pure race differential, no blocking
@@ -899,6 +963,7 @@ impl Bot {
         let o0 = self.potential(&world.pods[2]);
         let o1 = self.potential(&world.pods[3]);
         let weaker = if o0 < o1 { 2 } else { 3 };
+        self.opp_weak = weaker;
         self.opp_chaser = if self.chase[weaker] > self.params.chase_thresh {
             Some(weaker)
         } else {
